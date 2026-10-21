@@ -13,7 +13,7 @@ Resolve and validate MTA-STS policy
 ## SYNTAX
 
 ```
-Read-MtaStsPolicy [-Domain] <String> [<CommonParameters>]
+Read-MtaStsPolicy [-Domain] <String> [[-TimeoutSec] <Int32>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -39,6 +39,21 @@ Aliases:
 Required: True
 Position: 1
 Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -TimeoutSec
+Seconds to wait for the policy file. Defaults to 10
+
+```yaml
+Type: Int32
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: 2
+Default value: 10
 Accept pipeline input: False
 Accept wildcard characters: False
 ```

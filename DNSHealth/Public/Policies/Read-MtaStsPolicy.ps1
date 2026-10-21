@@ -9,13 +9,19 @@ function Read-MtaStsPolicy {
     .PARAMETER Domain
     Domain to process MTA-STS policy
 
+    .PARAMETER TimeoutSec
+    Seconds to wait for the policy file. Defaults to 10
+
     .EXAMPLE
     PS> Read-MtaStsPolicy -Domain gmail.com
     #>
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $true)]
-        [string]$Domain
+        [string]$Domain,
+
+        [Parameter()]
+        [int]$TimeoutSec = 10
     )
 
     $StsPolicyAnalysis = [PSCustomObject]@{
@@ -24,6 +30,7 @@ function Read-MtaStsPolicy {
         Mode             = ''
         Mx               = [System.Collections.Generic.List[string]]::new()
         MaxAge           = ''
+        Exists           = $false
         IsValid          = $false
         HasWarnings      = $false
         ValidationPasses = [System.Collections.Generic.List[string]]::new()
@@ -40,8 +47,9 @@ function Read-MtaStsPolicy {
 
     # Request policy file from domain, only accept text/plain results
     $RequestParams = @{
-        Uri     = ('https://mta-sts.{0}/.well-known/mta-sts.txt' -f $Domain)
-        Headers = @{
+        Uri        = ('https://mta-sts.{0}/.well-known/mta-sts.txt' -f $Domain)
+        TimeoutSec = $TimeoutSec
+        Headers    = @{
             Accept = 'text/plain'
         }
     }
@@ -50,6 +58,11 @@ function Read-MtaStsPolicy {
     try {
         $wr = Invoke-WebRequest @RequestParams -ErrorAction Stop
         $PolicyExists = $true
+        $StsPolicyAnalysis.Exists = $true
+    }
+
+    catch [System.Threading.Tasks.TaskCanceledException], [System.TimeoutException] {
+        $ValidationFails.Add(('MTA-STS policy for {0} did not respond within {1} seconds' -f $Domain, $TimeoutSec)) | Out-Null
     }
 
     catch {
