@@ -17,7 +17,9 @@ Read-MXRecord [-Domain] <String> [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Queries DNS servers to get MX records and returns in PSCustomObject list with Preference and Hostname
+Queries DNS servers to get MX records and returns in PSCustomObject list with Preference and Hostname.
+LookupFailed is true when the resolver gave no usable answer (no response, SERVFAIL, REFUSED), so the
+domain's MX records are unknown rather than missing.
 
 ## EXAMPLES
 
