@@ -65,6 +65,12 @@ function Test-DNSSEC {
                 $DSResults.Keys = $Result.answer.data
             }
 
+            # No keys at this name but an authenticated answer: the name sits inside a signed zone (keys live at its apex).
+            elseif ($Result.AD -eq $true) {
+                $Zone = "$(@($Result.Authority)[0].name)".TrimEnd('.')
+                $ValidationPasses.Add("DNSSEC is enabled and validated for this domain through the signed zone $(if ($Zone) { $Zone } else { 'above it' }).") | Out-Null
+            }
+
             else {
                 $ValidationFails.Add('DNSSEC is not set up for this domain.') | Out-Null
             }
