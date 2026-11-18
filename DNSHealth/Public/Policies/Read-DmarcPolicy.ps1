@@ -43,6 +43,7 @@ function Read-DmarcPolicy {
         Version          = ''
         Policy           = ''
         SubdomainPolicy  = ''
+        InheritedFrom    = ''
         Percent          = 100
         DkimAlignment    = 'r'
         SpfAlignment     = 'r'
@@ -85,6 +86,29 @@ function Read-DmarcPolicy {
         $DmarcRecord = $_.data
         $DmarcAnalysis.Record = $DmarcRecord
         $RecordCount++
+    }
+
+    # A subdomain without its own record is covered by the nearest parent's subdomain policy (RFC 7489 6.6.3).
+    $PolicyDomain = $Domain
+    if ($RecordCount -eq 0 -and $Query.Status -in 0, 3) {
+        $Labels = $Domain.Split('.')
+        for ($i = 1; $i -le $Labels.Count - 2; $i++) {
+            $Parent = $Labels[$i..($Labels.Count - 1)] -join '.'
+            $ParentQuery = Resolve-DnsHttpsQuery -RecordType 'TXT' -Domain "_dmarc.$Parent" -ErrorAction Stop
+            $ParentRecords = @($ParentQuery.Answer | Where-Object { $_.data -match '^v=DMARC1' })
+            if ($ParentRecords.Count -gt 0) {
+                $Query = $ParentQuery
+                $PolicyDomain = $Parent
+                $DmarcAnalysis.InheritedFrom = $Parent
+                foreach ($ParentRecord in $ParentRecords) {
+                    $DmarcRecord = $ParentRecord.data
+                    $DmarcAnalysis.Record = $DmarcRecord
+                    $RecordCount++
+                }
+                $ValidationPasses.Add("This domain has no DMARC record of its own, so the subdomain policy of $Parent applies.") | Out-Null
+                break
+            }
+        }
     }
 
     if ($Query.Status -eq 2 -and $Query.AD -eq $false) {
@@ -140,7 +164,7 @@ function Read-DmarcPolicy {
                     else {
                         $ReportEmailsSet = $true
                         if ($MailTo -match '^mailto:(?<Email>.+@(?<Domain>[^!]+?))(?:!(?<SizeLimit>[0-9]+[kmgt]?))?$') {
-                            if ($ReportDomains -notcontains $Matches.Domain -and $Matches.Domain -ne $Domain) {
+                            if ($ReportDomains -notcontains $Matches.Domain -and $Matches.Domain -ne $PolicyDomain) {
                                 $ReportDomains.Add($Matches.Domain) | Out-Null
                             }
                             $DmarcAnalysis.ReportingEmails.Add($Matches.Email) | Out-Null
@@ -162,7 +186,7 @@ function Read-DmarcPolicy {
                     if ($MailTo -notmatch '^mailto:') { $ValidationFails.Add("Forensic report email must begin with 'mailto:', multiple addresses must be separated by commas - found $($Tag.Value)") | Out-Null }
                     else {
                         if ($MailTo -match '^mailto:(?<Email>.+@(?<Domain>[^!]+?))(?:!(?<SizeLimit>[0-9]+[kmgt]?))?$') {
-                            if ($ReportDomains -notcontains $Matches.Domain -and $Matches.Domain -ne $Domain) {
+                            if ($ReportDomains -notcontains $Matches.Domain -and $Matches.Domain -ne $PolicyDomain) {
                                 $ReportDomains.Add($Matches.Domain) | Out-Null
                             }
                             $DmarcAnalysis.ForensicEmails.Add($Matches.Email) | Out-Null
@@ -204,17 +228,17 @@ function Read-DmarcPolicy {
         if ($ReportDomainCount -gt 0) {
             $ReportDomainsPass = $true
             foreach ($ReportDomain in $ReportDomains) {
-                $ReportDomainQuery = "$Domain._report._dmarc.$ReportDomain"
+                $ReportDomainQuery = "$PolicyDomain._report._dmarc.$ReportDomain"
                 $DnsQuery['Domain'] = $ReportDomainQuery
                 $ReportDmarcQuery = Resolve-DnsHttpsQuery @DnsQuery -ErrorAction Stop
                 $ReportDmarcRecord = $ReportDmarcQuery.Answer.data
                 if ($null -eq $ReportDmarcQuery -or $ReportDmarcQuery.Status -ne 0) {
-                    $ValidationWarns.Add("Report DMARC policy for $Domain is missing from $ReportDomain, reports will not be delivered. Expected record: '$Domain._report._dmarc.$ReportDomain' - Expected value: 'v=DMARC1;'") | Out-Null
+                    $ValidationWarns.Add("Report DMARC policy for $PolicyDomain is missing from $ReportDomain, reports will not be delivered. Expected record: '$PolicyDomain._report._dmarc.$ReportDomain' - Expected value: 'v=DMARC1;'") | Out-Null
                     $ReportDomainsPass = $false
                 }
 
                 elseif ($ReportDmarcRecord -notmatch '^v=DMARC1') {
-                    $ValidationWarns.Add("Report DMARC policy for $Domain is missing from $ReportDomain, reports will not be delivered. Expected record: '$Domain._report._dmarc.$ReportDomain' - Expected value: 'v=DMARC1;'.") | Out-Null
+                    $ValidationWarns.Add("Report DMARC policy for $PolicyDomain is missing from $ReportDomain, reports will not be delivered. Expected record: '$PolicyDomain._report._dmarc.$ReportDomain' - Expected value: 'v=DMARC1;'.") | Out-Null
                     $ReportDomainsPass = $false
                 }
             }
@@ -227,6 +251,8 @@ function Read-DmarcPolicy {
         # Check for missing record tags and set defaults
         if ($DmarcAnalysis.Policy -eq '') { $ValidationFails.Add('The policy tag (p=) is missing from this record. Set this to none, quarantine or reject.') | Out-Null }
         if ($DmarcAnalysis.SubdomainPolicy -eq '') { $DmarcAnalysis.SubdomainPolicy = $DmarcAnalysis.Policy }
+        # An inherited record applies its subdomain policy to this domain.
+        if ($DmarcAnalysis.InheritedFrom) { $DmarcAnalysis.Policy = $DmarcAnalysis.SubdomainPolicy }
 
         # Check policy for errors and best practice
         if ($PolicyValues -notcontains $DmarcAnalysis.Policy) { $ValidationFails.Add("The policy must be one of the following: none, quarantine or reject. Found $($Tag.Value)") | Out-Null }
