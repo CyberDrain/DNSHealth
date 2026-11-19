@@ -25,6 +25,8 @@ function Read-NSRecord {
         ValidationWarns  = [System.Collections.Generic.List[string]]::new()
         ValidationFails  = [System.Collections.Generic.List[string]]::new()
         NameProvider     = ''
+        IsSubdomain      = $false
+        ParentDomain     = ''
     }
     $ValidationPasses = [System.Collections.Generic.List[string]]::new()
     $ValidationFails = [System.Collections.Generic.List[string]]::new()
@@ -42,6 +44,20 @@ function Read-NSRecord {
 
     catch { $Result = $null }
 
+    # A name inside a parent zone has no NS records of its own; the authority section names that zone,
+    # whose nameservers serve it.
+    $Zone = "$(@($Result.Authority | Where-Object { $_.type -eq 6 })[0].name)".TrimEnd('.')
+    if ($Result.Status -eq 0 -and -not $Result.Answer -and $Zone -and $Zone -ne $Domain.TrimEnd('.')) {
+        try {
+            $ZoneResult = Resolve-DnsHttpsQuery -RecordType 'ns' -Domain $Zone -ErrorAction Stop
+            if ($ZoneResult.Status -eq 0 -and $ZoneResult.Answer) {
+                $Result = $ZoneResult
+                $NSResults.IsSubdomain = $true
+                $NSResults.ParentDomain = $Zone
+            }
+        } catch {}
+    }
+
     if ($Result.Status -eq 2 -and $Result.AD -eq $false) {
         $ValidationFails.Add('DNSSEC Validation failed.') | Out-Null
     }
@@ -53,7 +69,11 @@ function Read-NSRecord {
 
     else {
         $NSRecords = $Result.Answer.data
-        $ValidationPasses.Add('Nameserver record is present.') | Out-Null
+        if ($NSResults.IsSubdomain) {
+            $ValidationPasses.Add("This is a subdomain of $($NSResults.ParentDomain) and is served by its nameservers.") | Out-Null
+        } else {
+            $ValidationPasses.Add('Nameserver record is present.') | Out-Null
+        }
         $NSResults.Records = @($NSRecords)
     }
     $NSResults.ValidationPasses = $ValidationPasses
