@@ -11,5 +11,5 @@
     # short-circuits — required on hosts where runtime CSharp compilation
     # fails (no $PSHOME/ref). Source: Source/SevenTinyRsa/. CopyDirectories
     # is ModuleBuilder's alias for CopyPaths, which accepts files too.
-    CopyDirectories          = @('MailProviders', 'SevenTinyRsa.dll')
+    CopyDirectories          = @('MailProviders', 'SevenTinyRsa.dll', 'CertificateCheck.dll')
 }

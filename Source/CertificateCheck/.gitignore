@@ -1,0 +1,4 @@
+# .NET build intermediates — the built DLL is committed under
+# ../../DNSHealth/CertificateCheck.dll (see README.md).
+bin/
+obj/
